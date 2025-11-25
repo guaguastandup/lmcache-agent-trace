@@ -28,6 +28,7 @@ More agents to be added from the [Awesome Agents](https://github.com/kyrolabs/aw
 
 References:
 * https://www.anthropic.com/engineering/building-effective-agents
-* https://www.arxiv.org/pdf/2510.04618
-* https://pierce.dev/notes/a-deep-dive-on-agent-sandboxes
-* https://arxiv.org/pdf/2511.02230
+* https://www.arxiv.org/pdf/2510.04618 (Agentic Context Engineering)
+* https://arxiv.org/pdf/2511.02230 (CONTINUUM)
+* https://arxiv.org/pdf/2410.02506 (AgentPrune)
+* https://arxiv.org/pdf/2510.12872 (KVCOMM)
