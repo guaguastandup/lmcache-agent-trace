@@ -2,6 +2,7 @@ This repo is meant to run a series of experiments to collect trace data from AI 
 
 **Important note**: If the agent is powered by an OPENAI model, the traces will be automatically tracked from the [OpenAI API Dashboard](https://platform.openai.com/logs). Collecting traces should be easy.
 
+A simple vibe-coded agent trace prefix [analyzer](https://v0-llm-agent-dashboard.vercel.app/).
 
 ## On-going Checklist
 
