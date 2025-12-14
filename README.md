@@ -20,7 +20,7 @@ A simple vibe-coded agent trace prefix [analyzer](https://v0-llm-agent-dashboard
 | [Aider](https://github.com/Aider-AI/aider) | 🔄 | aider is AI pair programming in your terminal |
 | [Devika](https://github.com/stitionai/devika) | ⏳ | Devika is an Agentic AI Software Engineer that can understand high-level human instructions, break them down into steps, research relevant information, and write code to achieve the given objective |
 | [RepoAgent](https://github.com/OpenBMB/RepoAgent) | 🔄 | An LLM-powered repository agent designed to assist developers and teams in generating documentation and understanding repositories quickly |
-| [DSPy](https://github.com/stanfordnlp/dspy) | ⏳ | The framework for programming—not prompting—foundation models |
+| [DSPy](https://github.com/stanfordnlp/dspy) | 🔄 | The framework for programming—not prompting—foundation models |
 | [ThinkGPT](https://github.com/alaeddine-13/thinkgpt) | ⏳ | Agent techniques to augment your LLM and push it beyond its limits |
 | [PyCodeAGI](https://github.com/chakkaradeep/pyCodeAGI) | ⏳ | A small AGI experiment to generate a Python app given what app the user wants to build |
 | [SuperAGI](https://github.com/TransformerOptimus/SuperAGI) | ⏳ | SuperAGI - A dev-first open source autonomous AI agent framework |
