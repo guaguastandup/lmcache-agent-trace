@@ -6,6 +6,7 @@ from collections import OrderedDict
 from typing import List, Optional, Tuple, Union
 import argparse
 import json
+import re
 
 # Third Party
 from tqdm import tqdm
@@ -75,8 +76,8 @@ class LRUTokenPool:
         token_tensor: torch.Tensor,
         tokens: List[int],
         *,
-        chunk_len: int = 4,
-        stride_r: int = 4,
+        chunk_len: int = 16,
+        stride_r: int = 16,
         chunk_batch: int = 512,
     ) -> Tuple[int, float]:
         """
@@ -203,13 +204,61 @@ def load_and_tokenize_inputs(
 
     for line in tqdm(lines, desc="Tokenizing"):
         try:
+            # Try standard JSON parsing first
             data = json.loads(line.strip())
             input_text = data.get("input", "")
             tokens = tokenizer.encode(input_text)
             tokenized_sequences.append(tokens)
-        except Exception as e:
-            print(f"Warning: Failed to process line: {e}")
-            tokenized_sequences.append([])
+        except json.JSONDecodeError:
+            # Handle malformed JSON with nested unescaped quotes
+            # Just extract the "input" field value as raw text and tokenize it
+            try:
+                line_str = line.strip()
+                
+                # Find the start of the input value
+                input_match = re.search(r'"input"\s*:\s*"', line_str)
+                if not input_match:
+                    print(f"Warning: Failed to process line: Could not find input field")
+                    tokenized_sequences.append([])
+                    continue
+                
+                input_start = input_match.end()
+                
+                # Find the end - look for ", "output" or ", "session_id" patterns
+                # The input value ends with a quote followed by comma and space and next field
+                output_pattern = r'",\s*"output"\s*:'
+                session_pattern = r'",\s*"session_id"\s*:'
+                
+                output_match = re.search(output_pattern, line_str[input_start:])
+                session_match = re.search(session_pattern, line_str[input_start:])
+                
+                if output_match:
+                    input_end = input_start + output_match.start()
+                elif session_match:
+                    input_end = input_start + session_match.start()
+                else:
+                    # Last resort: find the last quote before the closing brace
+                    last_brace = line_str.rfind('}')
+                    if last_brace > input_start:
+                        input_end = line_str.rfind('"', input_start, last_brace)
+                    else:
+                        print(f"Warning: Failed to process line: Could not determine input end")
+                        tokenized_sequences.append([])
+                        continue
+                
+                if input_end <= input_start:
+                    print(f"Warning: Failed to process line: Invalid input boundaries")
+                    tokenized_sequences.append([])
+                    continue
+                
+                # Extract the input text as-is and tokenize it directly as plain text
+                input_text = line_str[input_start:input_end]
+                tokens = tokenizer.encode(input_text)
+                tokenized_sequences.append(tokens)
+                    
+            except Exception as e2:
+                print(f"Warning: Failed to process line: {e2}")
+                tokenized_sequences.append([])
 
     if tokenized_sequences:
         max_length = max(len(seq) for seq in tokenized_sequences)
