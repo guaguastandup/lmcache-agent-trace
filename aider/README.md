@@ -173,3 +173,14 @@ This confirms that although the *absolute prefix* is broken by dynamic content (
 We provide a dedicated visualizer to explore these traces interactively. You can load raw `.jsonl` trace files to inspect token distribution and cache hits.
 
 * **Online Visualizer**: [lmcache-aider-trace visualizer](https://lmcache-aider-trace.netlify.app/)
+
+
+---
+
+## Appendix: Setup & Execution Guide
+
+For those who wish to reproduce our test results directly, we have prepared a dedicated repository containing all necessary patches and scripts. 
+
+* Repository: https://github.com/guaguastandup/aider-swebench-patch
+
+* Instruction: Please refer to the README.md in that repository for detailed configuration and execution steps.
