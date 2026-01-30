@@ -1,0 +1,1019 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aider Trace Analyzer</title>
+    <link rel="icon" href="icon.png" type="image/png">
+    <style>
+        /* ==================== 1. CSS 变量 ==================== */
+        :root {
+            --col-width: 500px;
+            --line-height: 1.0;
+            --font-size: 12px;
+            --prefix-opacity: 1;
+            
+            /* ================= ☀️ Light Theme ================= */
+            --bg-color: #f8f9fa;
+            --col-bg: #ffffff;
+            --border-color: #dadce0;
+            --text-color: #202124;
+            --meta-text: #5f6368;
+            --meta-bg: #f1f3f4;
+            --output-bg: #f0f7ff;
+            --output-border: #cce3ff;
+            
+            /* Roles */
+            --role-system-bg: #f3e5f5; --role-system-border: #ab47bc; --role-system-text: #6a1b9a;
+            --role-user-bg: #e8f5e9;   --role-user-border: #43a047;   --role-user-text: #1b5e20;
+            --role-asst-bg: #e3f2fd;   --role-asst-border: #1e88e5;   --role-asst-text: #0d47a1;
+            --role-tag-bg: #fff3e0;    --role-tag-text: #f57c00;
+            
+            /* Functional */
+            --arrow-color: #1a73e8; 
+            --search-bg: #ff4081;
+            --search-text: #fff;
+            --prefix-text: #9aa0a6;
+            --boundary-color: #999;
+
+            /* 🔥 Heatmap (Light) */
+            --heat-high-bg: #ffccbc; --heat-high-text: #000;
+            --heat-mid-bg: #fff9c4;  --heat-mid-text: #000;
+            --heat-low-bg: #b2dfdb;  --heat-low-text: #000;
+            
+            /* Cache Source Border (Light) */
+            --source-border: #666;
+
+            --badge-bg: #000;
+            --badge-text: #fff;
+
+            --code-font: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+        }
+
+        /* ================= 🌙 Dark Theme (Custom Pink) ================= */
+        [data-theme="dark"] {
+            /* 您的定制配色 */
+            --bg-color: #31282d;
+            --col-bg: #3b3236; /* 稍微提亮一点作为容器背景，基于 #31282d */
+            --border-color: #7a606b; /* Muted Pink/Grey Border */
+            
+            --text-color: #ffffff;
+            --meta-text: #ffb7b2;  /* Salmon Pink */
+            --meta-bg: #4a3b42;    /* Darker Meta */
+            
+            --output-bg: #261e22;
+            --output-border: #c4a3b1;
+
+            /* Roles (Customized for Pink Theme) */
+            --role-system-bg: rgba(196, 163, 177, 0.2); --role-system-border: #c4a3b1; --role-system-text: #f48fb1;
+            --role-user-bg: rgba(255, 105, 180, 0.15);  --role-user-border: #FF69B4;   --role-user-text: #ffb7b2;
+            --role-asst-bg: rgba(122, 96, 107, 0.3);    --role-asst-border: #7a606b;   --role-asst-text: #ffffff;
+            --role-tag-bg: rgba(255, 183, 178, 0.1);    --role-tag-text: #ffb7b2;
+
+            /* Functional */
+            --arrow-color: #00e5ff; /* 蓝色箭头 (Requested) */
+            --search-bg: #FF69B4;   /* Hot Pink */
+            --search-text: #ffffff;
+            --prefix-text: #7a606b; /* Dark Muted Pink */
+            --boundary-color: #FF69B4;
+
+            /* 🔥 Heatmap Tiers (Custom Transparencies) */
+            /* High: #FF149380 */
+            --heat-high-bg: #df248880; --heat-high-text: #ffffff;
+            /* Mid: #FF149360 */
+            --heat-mid-bg: #eda19b;  --heat-mid-text: #ffffff;
+            /* Low: #FF69B460 */
+            --heat-low-bg: #a6778a;  --heat-low-text: #ffffff;
+
+            /* Cache Source Style (Dark) */
+            --source-border: #f48fb1;
+
+            /* Badge */
+            --badge-bg: #f48fb1; 
+            --badge-text: #31282d; /* Dark text on light pink badge */
+        }
+
+        body {
+            font-family: var(--code-font);
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0; padding: 0; overflow: hidden; height: 100vh;
+            display: flex; flex-direction: column;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        /* ==================== UI ==================== */
+        .toolbar {
+            background: var(--col-bg); border-bottom: 1px solid var(--border-color);
+            padding: 8px 15px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+            z-index: 200; box-shadow: 0 4px 15px rgba(0,0,0,0.2); font-family: sans-serif; font-size: 13px; flex-shrink: 0;
+            color: var(--text-color); backdrop-filter: blur(10px);
+        }
+
+        .setting-group { display: flex; align-items: center; gap: 6px; border-right: 1px solid var(--border-color); padding-right: 10px; }
+        .setting-group:last-child { border-right: none; }
+        
+        input[type="range"] { width: 70px; cursor: pointer; }
+        label { font-weight: 600; color: var(--meta-text); font-size: 12px; }
+        
+        .num-input, select, textarea.mini-input {
+            width: 40px; padding: 4px; border: 1px solid var(--border-color); 
+            border-radius: 4px; font-family: monospace; text-align: center; 
+            background: rgba(0,0,0,0.1); color: var(--text-color);
+        }
+        select, textarea.mini-input { width: 120px; text-align: left; font-size: 11px; }
+        textarea.mini-input { height: 28px; resize: none; font-family: var(--code-font); }
+        textarea.mini-input:focus { border-color: var(--arrow-color); outline: none; box-shadow: 0 0 5px var(--arrow-color); }
+        
+        button {
+            padding: 5px 12px; background: var(--arrow-color); color: #fff; border: none; border-radius: 4px;
+            cursor: pointer; font-size: 12px; font-weight: 500; transition: all 0.2s;
+        }
+        button:hover { opacity: 0.9; box-shadow: 0 0 8px var(--arrow-color); }
+        button.secondary { background: var(--meta-bg); color: var(--text-color); border: 1px solid var(--border-color); }
+        button.active-toggle { background: #ff9800 !important; color:#000 !important; }
+        
+        /* Hit Mode Toggle Color */
+        button.mode-hit { background: #f48fb1 !important; color:#31282d !important; font-weight:bold; } 
+        
+        .theme-btn { font-size: 14px; background: transparent; color: var(--text-color); padding: 4px 8px; }
+        .theme-btn:hover { background: var(--meta-bg); }
+
+        .search-group { display: flex; align-items: center; border: 1px solid var(--border-color); border-radius: 4px; padding: 2px 5px; background: rgba(0,0,0,0.1); }
+        .search-input { border: none; background: transparent; outline: none; font-size: 12px; width: 120px; padding: 4px; color: var(--text-color); }
+        .search-count { font-size: 11px; color: var(--meta-text); margin-left: 5px; min-width: 40px; text-align: right; }
+        .search-btn { background: none; border: none; cursor: pointer; color: var(--meta-text); font-weight: bold; padding: 0 4px; }
+        .search-btn:hover { color: var(--arrow-color); }
+
+        #render-status { font-size: 11px; color: var(--arrow-color); font-weight: bold; display: none; animation: pulse 1s infinite; }
+        @keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
+        .heatmap-legend { font-size: 11px; color: var(--meta-text); display: flex; align-items: center; gap: 8px; margin-left: 5px; opacity: 0; transition: opacity 0.3s; }
+        .heatmap-legend.visible { opacity: 1; }
+        .legend-item { display: flex; align-items: center; gap: 3px; }
+        .color-box { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
+
+        /* ==================== Layout ==================== */
+        .main-wrapper { flex: 1; position: relative; overflow: auto; padding: 20px; scroll-behavior: smooth; background: var(--bg-color); }
+        .container { display: flex; flex-direction: row; gap: 10px; width: max-content; min-height: 100%; position: relative; }
+
+        .trace-column {
+            background: var(--col-bg); border: 1px solid var(--border-color); border-radius: 6px;
+            width: var(--col-width); min-width: var(--col-width); max-width: var(--col-width);
+            display: flex; flex-direction: column; position: relative; z-index: 5; flex-shrink: 0;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            backdrop-filter: blur(5px);
+        }
+        .trace-header {
+            font-family: sans-serif; border-bottom: 1px solid var(--border-color); padding: 8px;
+            position: sticky; top: 0; background: var(--col-bg); z-index: 10; font-size: 12px; opacity: 0.98;
+            backdrop-filter: blur(10px);
+        }
+        .meta-row {
+            display: flex; justify-content: space-between; color: var(--meta-text); font-size: 11px; margin-top: 4px;
+            background: var(--meta-bg); padding: 3px 6px; border-radius: 2px;
+        }
+        .trace-content { padding: 5px; }
+        .output-section { background-color: var(--output-bg); border-top: 1px dashed var(--output-border); padding: 5px; margin-top: 4px; }
+        .sep-label { font-size: 10px; color: var(--arrow-color); font-weight: bold; display: block; }
+        .line-row { display: block; white-space: pre-wrap; word-break: break-all; line-height: var(--line-height); font-size: var(--font-size); margin-bottom: 2px; }
+
+        /* ==================== Token (Streamline) ==================== */
+        .token { 
+            display: inline-block; position: relative; cursor: pointer; 
+            padding: 2px 0; margin: 0; border-radius: 0; border: none; /* Streamline */
+            transition: none; vertical-align: top; padding-left: 1px; padding-right: 1px;
+        }
+        .token:hover { filter: brightness(1.2); z-index: 10; outline: 1px solid var(--border-color); }
+        
+        .token.is-prefix { color: var(--prefix-text); opacity: var(--prefix-opacity); }
+        body.heatmap-active .token.is-prefix { color: var(--text-color) !important; opacity: 1 !important; }
+
+        .token.role-system { background-color: var(--role-system-bg); color: var(--role-system-text) !important; font-weight:bold; }
+        .token.role-user { background-color: var(--role-user-bg); color: var(--role-user-text) !important; font-weight:bold; }
+        .token.role-assistant { background-color: var(--role-asst-bg); color: var(--role-asst-text) !important; font-weight:bold; }
+        .token.role-tag { background-color: var(--role-tag-bg); color: var(--role-tag-text) !important; font-weight:bold; }
+        .token.role-end { color: var(--meta-text) !important; font-size: 0.9em; }
+
+        .token.prefix-boundary { border-right: 2px dashed var(--boundary-color) !important; }
+
+        /* 🔥 Tiered Heatmap (No Borders) */
+        .token.heat-high { background-color: var(--heat-high-bg) !important; color: var(--heat-high-text) !important; }
+        .token.heat-mid  { background-color: var(--heat-mid-bg) !important;  color: var(--heat-mid-text) !important; }
+        .token.heat-low  { background-color: var(--heat-low-bg) !important;  color: var(--heat-low-text) !important; }
+
+        /* 🔥 Cache Source Indicator (Empty outline or underline) */
+        .token.cache-source { 
+            border-bottom: none; /* 移除下划线 */
+            /* 可选：如果你希望 Source 的文字稍微暗一点点，以示区别，可以加下面这行，不需要则忽略 */
+            /* opacity: 0.9; */
+        }
+
+        /* Interaction States */
+        .source-chunk { background-color: #fdd663 !important; color: #000 !important; outline: 2px solid #f9ab00; opacity: 1 !important; z-index:20; }
+        .target-chunk { background-color: #a8c7fa !important; color: #000 !important; outline: 2px solid #4285f4; opacity: 1 !important; z-index:20; }
+        .target-chunk.active-focus { background-color: var(--arrow-color) !important; color: #000 !important; outline: 3px solid #fff; transform: scale(1.1); z-index: 100; box-shadow: 0 0 15px var(--arrow-color); }
+        .search-match { background-color: var(--search-bg) !important; color: var(--search-text) !important; font-weight: bold; }
+        .search-match.search-current { background-color: var(--search-current-bg) !important; color: #fff !important; outline: 2px solid #fff; transform: scale(1.1); z-index: 200; }
+
+        /* Badges */
+        .token[data-badge]::after {
+            content: attr(data-badge); position: absolute; top: -13px; left: 0; font-size: 9px; line-height: 1; padding: 2px 4px;
+            background-color: var(--badge-bg); color: var(--badge-text); border-radius: 3px; pointer-events: none;
+            z-index: 50; white-space: nowrap; box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+            font-family: sans-serif; font-weight: bold; opacity: 0.95;
+        }
+        .token[data-badge]:hover::after { opacity: 1; z-index: 60; transform: scale(1.2); }
+
+        #arrow-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 50; }
+        path { fill: none; stroke-opacity: 0.8; stroke-linecap: round; filter: drop-shadow(0 0 4px var(--arrow-color)); }
+
+        .global-dock {
+            position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(100px);
+            background: var(--col-bg); color: var(--text-color); border: 1px solid var(--border-color);
+            padding: 10px 20px; border-radius: 50px; display: flex; align-items: center; gap: 15px; 
+            z-index: 9999; box-shadow: 0 0 20px rgba(255, 105, 180, 0.5); font-family: sans-serif; font-size: 14px; 
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            backdrop-filter: blur(10px);
+        }
+        .global-dock.visible { transform: translateX(-50%) translateY(0); }
+        .dock-btn { background: var(--meta-bg); border: 1px solid var(--border-color); color: var(--text-color); padding: 5px 12px; border-radius: 20px; cursor: pointer; font-size: 12px; }
+        .dock-btn:hover { background: var(--border-color); color: var(--arrow-color); }
+        .dock-close { margin-left: 10px; cursor: pointer; color: var(--meta-text); font-weight: bold; }
+
+        .back-to-top {
+            position: fixed; bottom: 30px; right: 30px; width: 40px; height: 40px; border-radius: 50%;
+            background: var(--arrow-color); color: #000; display: flex; align-items: center; justify-content: center;
+            cursor: pointer; opacity: 0; pointer-events: none; transition: 0.3s; z-index: 999; 
+            box-shadow: 0 0 15px var(--arrow-color); border: none; font-size: 18px; font-weight: bold;
+        }
+        .back-to-top.visible { opacity: 1; pointer-events: all; }
+        .back-to-top:hover { transform: translateY(-3px); box-shadow: 0 0 25px var(--arrow-color); }
+
+        .jump-out-btn {
+            font-size: 10px; padding: 2px 6px; margin-left: 8px; border: 1px solid var(--arrow-color); border-radius: 2px;
+            background: transparent; cursor: pointer; color: var(--arrow-color); font-weight: bold;
+        }
+        .jump-out-btn:hover { background: var(--arrow-color); color: #000; box-shadow: 0 0 8px var(--arrow-color); }
+
+    </style>
+</head>
+<body>
+
+<div class="toolbar">
+    <div style="font-weight:bold; color:var(--arrow-color); margin-right:10px; text-shadow: 0 0 5px var(--arrow-color); letter-spacing: 1px;">Aider Trace Analyzer</div>
+    
+    <button class="theme-btn" onclick="toggleTheme()" title="Toggle Dark Mode">🌗</button>
+
+    <select id="font-select" onchange="updateCSS('--code-font', this.value)">
+        <option value="'Google Sans Code', 'JetBrains Mono', monospace">Google Sans</option>
+        <option value="'JetBrains Mono', monospace">JetBrains</option>
+        <option value="'Fira Code', monospace">Fira Code</option>
+        <option value="'Consolas', monospace">Consolas</option>
+        <option value="'Source Code Pro', monospace">Source Code</option>
+    </select>
+
+    <div style="width:1px; height:20px; background:var(--border-color); margin:0 5px;"></div>
+
+    <div class="search-group">
+        <input type="text" id="search-input" class="search-input" placeholder="Search..." onkeydown="if(event.key==='Enter') performSearch(event.shiftKey ? -1 : 1)">
+        <span id="search-count" class="search-count"></span>
+        <button class="search-btn" title="Prev" onclick="performSearch(-1)">▲</button>
+        <button class="search-btn" title="Next" onclick="performSearch(1)">▼</button>
+    </div>
+
+    <div class="setting-group" style="padding-left:10px;">
+        <button id="btn-heatmap" onclick="cycleHeatmapMode()">🔥 Heatmap: Off</button>
+        <div id="heatmap-legend" class="heatmap-legend">
+            <div class="legend-item"><span class="color-box" style="background:var(--heat-low-bg)"></span>Lo</div>
+            <div class="legend-item"><span class="color-box" style="background:var(--heat-mid-bg)"></span>Md</div>
+            <div class="legend-item"><span class="color-box" style="background:var(--heat-high-bg)"></span>Hi</div>
+        </div>
+        <span id="render-status">Loading...</span>
+        
+        <label title="Heatmap Granularity">N:</label>
+        <input type="number" id="gram-len" class="num-input" value="50" min="2" onchange="syncMatchLen(this.value); if(currentHeatMode!=='off') startAsyncHeatmap()">
+    </div>
+
+    <div class="setting-group">
+        <label title="Click Match Length">Match:</label>
+        <input type="number" id="chunk-len-input" class="num-input" value="50" min="1" style="width: 80px;">
+    </div>
+
+    <div class="setting-group">
+        <label>W:</label>
+        <input type="range" min="300" max="1000" value="500" oninput="updateCSS('--col-width', this.value + 'px')">
+        <label>H:</label>
+        <input type="range" min="0.5" max="2.0" step="0.1" value="1.0" oninput="updateCSS('--line-height', this.value)">
+    </div>
+
+    <div class="setting-group" style="border:none;">
+        <label><input type="checkbox" checked onchange="updateCSS('--prefix-opacity', this.checked ? '1' : '0.3')"> Prefix</label>
+    </div>
+
+    <div style="flex:1;"></div>
+
+    <textarea id="input-text" class="mini-input" placeholder='Paste JSONL...'></textarea>
+    <button onclick="parseAndRender()">Load</button>
+    <button class="secondary" onclick="resetViz()">Reset</button>
+</div>
+
+<div id="nav-dock" class="global-dock">
+    <span id="dock-text" style="font-weight:bold;">0 Matches</span>
+    <button class="dock-btn" onclick="navigateMatch(-1)">Prev</button>
+    <button class="dock-btn" onclick="navigateMatch(1)">Next</button>
+    <span class="dock-close" onclick="closeDock()">✕</span>
+</div>
+
+<button id="back-to-top" class="back-to-top" onclick="scrollToTop()">⬆</button>
+
+<div class="main-wrapper" id="scroll-wrapper">
+    <div class="container" id="main-container">
+        <svg id="arrow-layer"></svg>
+    </div>
+</div>
+
+<script>
+    const DEFAULT_TRACE_DATA = `{"input": "=== SYSTEM ===\\nYou are a helpful assistant.\\n=== USER ===\\nHow does prefix caching work? (Click me to test self-match)", "timestamp": 1766569207815, "model": "gpt-4"}
+{"input": "=== SYSTEM ===\\nYou are a helpful assistant.\\n=== USER ===\\nExplain attention mechanism.\\n(Long context to test jump)\\n...\\n...\\n...", "output": "Here is the output.", "timestamp": 1766569210000, "model": "gpt-4"}
+{"input": "<|im_start|>user\\nSelf match test: How does prefix caching work?\\n<|im_end|>", "output": "<|im_start|>assistant\\nSure.\\n<|im_end|>", "model": "deepseek-v3"}`;
+
+    let traces = []; let tokenData = []; let tokenElements = []; let traceStats = [];    
+    let currentHeatMode = 'off'; 
+    let ngramCounts = new Map(); let heatmapTask = null; 
+    let matchTargets = []; let currentMatchIndex = -1;
+    let searchResults = []; let currentSearchIndex = -1;
+
+    const container = document.getElementById('main-container');
+    const svgLayer = document.getElementById('arrow-layer'); 
+    const dock = document.getElementById('nav-dock');
+    const dockText = document.getElementById('dock-text');
+    const renderStatus = document.getElementById('render-status');
+    const scrollWrapper = document.getElementById('scroll-wrapper');
+    const backToTopBtn = document.getElementById('back-to-top');
+    const heatBtn = document.getElementById('btn-heatmap');
+    const heatLegend = document.getElementById('heatmap-legend');
+
+    scrollWrapper.addEventListener('scroll', () => {
+        if (scrollWrapper.scrollTop > 300) backToTopBtn.classList.add('visible');
+        else backToTopBtn.classList.remove('visible');
+    });
+
+    function scrollToTop() {
+        scrollWrapper.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function toggleTheme() {
+        const html = document.documentElement;
+        html.setAttribute('data-theme', html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+        setTimeout(() => {
+            resetViz(false);
+            if(currentHeatMode !== 'off') startAsyncHeatmap(); 
+        }, 50);
+    }
+
+    function updateCSS(varName, value) {
+        document.documentElement.style.setProperty(varName, value);
+        setTimeout(() => { resizeSVG(); resetViz(false); }, 100);
+    }
+
+    function syncMatchLen(val) {
+        document.getElementById('chunk-len-input').value = val;
+    }
+
+    function parseAndRender() {
+        if (heatmapTask) cancelAnimationFrame(heatmapTask);
+        currentHeatMode = 'off';
+        updateButtons();
+
+        let rawText = document.getElementById('input-text').value;
+        if (!rawText.trim()) rawText = DEFAULT_TRACE_DATA;
+
+        const lines = rawText.split('\n');
+        let newTraces = [];
+
+        for (let line of lines) {
+            line = line.trim();
+            if (!line) continue;
+            try {
+                if (line.startsWith('{')) {
+                    const json = JSON.parse(line);
+                    let input = json.input || json.prompt || "";
+                    if (typeof input !== 'string') input = JSON.stringify(input);
+                    let output = json.output || json.generation || json.response || "";
+                    if (typeof output !== 'string') output = JSON.stringify(output);
+                    
+                    let meta = {};
+                    if(json.model) meta.model = json.model;
+                    let rawTs = json.timestamp || json.created || json.time;
+                    if (rawTs) meta.timestamp = formatTimestamp(rawTs);
+
+                    newTraces.push({ input, output, meta });
+                } else { newTraces.push({ input: line, output: "", meta: {} }); }
+            } catch (e) { newTraces.push({ input: line, output: "", meta: {} }); }
+        }
+        
+        traces = newTraces;
+        closeDock();
+        clearSearch(); 
+        preComputeStats();
+        renderDOM(); 
+    }
+
+    function formatTimestamp(ts) {
+        if (!ts) return "";
+        if (typeof ts === 'number') {
+            if (ts < 10000000000) return new Date(ts * 1000).toLocaleString();
+            else return new Date(ts).toLocaleString();
+        }
+        const d = new Date(ts);
+        if (!isNaN(d.getTime())) return d.toLocaleString();
+        return ts;
+    }
+
+    function preComputeStats() {
+        tokenData = [];
+        traceStats = [];
+        traces.forEach(t => {
+            const tokens = [];
+            t.input.split('\n').forEach(l => tokens.push(...l.trim().split(/\s+/).filter(x=>x)));
+            if (t.output) {
+                tokens.push("__SEP__");
+                t.output.split('\n').forEach(l => tokens.push(...l.trim().split(/\s+/).filter(x=>x)));
+            }
+            tokenData.push(tokens);
+        });
+
+        const N = parseInt(document.getElementById('gram-len').value) || 8;
+        const globalHistory = new Set(); 
+
+        tokenData.forEach((tokens, i) => {
+            // A. Prefix Logic
+            let maxPrefixLen = 0;
+            for (let j = 0; j < i; j++) {
+                const prevTokens = tokenData[j];
+                let currentLen = 0;
+                const minLen = Math.min(tokens.length, prevTokens.length);
+                for(let k=0; k<minLen; k++) {
+                    if (tokens[k] === "__SEP__") { currentLen++; continue; }
+                    if (tokens[k] === prevTokens[k]) currentLen++; else break;
+                }
+                if (currentLen > maxPrefixLen) maxPrefixLen = currentLen;
+            }
+
+            // B. Substring Logic
+            const coveredIndices = new Uint8Array(tokens.length);
+            for (let k = 0; k <= tokens.length - N; k++) {
+                const chunk = tokens.slice(k, k + N);
+                if (chunk.includes("__SEP__")) continue;
+                const key = chunk.join(' ');
+                if (globalHistory.has(key)) {
+                    for (let m = 0; m < N; m++) coveredIndices[k+m] = 1;
+                }
+            }
+            let subCount = 0;
+            for(let x of coveredIndices) subCount += x;
+            
+            for (let k = 0; k <= tokens.length - N; k++) {
+                const chunk = tokens.slice(k, k + N);
+                if (chunk.includes("__SEP__")) continue;
+                globalHistory.add(chunk.join(' '));
+            }
+
+            traceStats.push({ 
+                prefixLen: maxPrefixLen, 
+                prefixRate: tokens.length ? maxPrefixLen/tokens.length : 0,
+                subRate: tokens.length ? subCount/tokens.length : 0
+            });
+        });
+    }
+
+    function renderDOM() {
+        const oldCols = document.querySelectorAll('.trace-column');
+        oldCols.forEach(c => c.remove());
+        svgLayer.innerHTML = '';
+        tokenElements = [];
+
+        traces.forEach((trace, idx) => {
+            const col = document.createElement('div');
+            col.className = 'trace-column';
+            const stats = traceStats[idx];
+
+            const headerDiv = document.createElement('div');
+            headerDiv.className = 'trace-header';
+            
+            const subPerc = (stats.subRate * 100).toFixed(0);
+            const prePerc = (stats.prefixRate * 100).toFixed(0);
+            
+            const titleRow = document.createElement('div');
+            titleRow.style.display = 'flex';
+            titleRow.style.justifyContent = 'space-between';
+            titleRow.style.alignItems = 'center';
+            titleRow.innerHTML = `
+                <strong>#${idx}</strong> 
+                <span style="font-size:11px;">
+                    <span style="color:var(--meta-text);">Prefix: ${prePerc}%</span>
+                    <span style="color:var(--arrow-color); margin-left:5px; font-weight:bold;">Sub: ${subPerc}%</span>
+                </span>
+            `;
+            headerDiv.appendChild(titleRow);
+
+            if (trace.meta.timestamp || trace.meta.model || trace.output) {
+                const metaRow = document.createElement('div');
+                metaRow.className = 'meta-row';
+                
+                let metaContent = '';
+                if (trace.meta.timestamp) metaContent += `<span title="Time">🕒 ${trace.meta.timestamp}</span> `;
+                if (trace.meta.model) metaContent += `<span title="Model">🤖 ${trace.meta.model}</span>`;
+                metaRow.innerHTML = `<div>${metaContent}</div>`;
+
+                if (trace.output) {
+                    const jumpBtn = document.createElement('button');
+                    jumpBtn.className = 'jump-out-btn';
+                    jumpBtn.innerText = '⬇ Out';
+                    jumpBtn.onclick = (e) => {
+                        e.stopPropagation();
+                        const outDiv = col.querySelector('.output-section');
+                        if (outDiv) {
+                            outDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                    };
+                    metaRow.appendChild(jumpBtn);
+                }
+                headerDiv.appendChild(metaRow);
+            }
+            col.appendChild(headerDiv);
+
+            let globalIdx = 0;
+            const currentEls = [];
+
+            const renderText = (txt, parent) => {
+                txt.split('\n').forEach(line => {
+                    const row = document.createElement('div');
+                    row.className = 'line-row';
+                    const tokens = line.trim().split(/\s+/).filter(x=>x);
+                    if(tokens.length===0) row.innerHTML='&nbsp;';
+                    else {
+                        tokens.forEach(t => {
+                            const span = document.createElement('span');
+                            span.className = 'token';
+                            span.innerText = t + " ";
+                            
+                            if(globalIdx < stats.prefixLen) span.classList.add('is-prefix');
+                            if (globalIdx === stats.prefixLen - 1 && stats.prefixLen > 0) {
+                                span.classList.add('prefix-boundary');
+                            }
+                            
+                            const lower = t.toLowerCase();
+                            const isSystem = (lower.includes('system') && (lower.includes('<|') || lower.includes('===') || lower.includes('###'))) || t === 'SYSTEM';
+                            const isUser = (lower.includes('user') && (lower.includes('<|') || lower.includes('===') || lower.includes('###'))) || t === 'USER';
+                            const isAssistant = ((lower.includes('assistant') || lower.includes('model')) && (lower.includes('<|') || lower.includes('===') || lower.includes('###'))) || t === 'ASSISTANT' || t === 'MODEL';
+                            const isTag = t.includes('===') || t.includes('<|im_start|>') || t.includes('###');
+                            
+                            if (isSystem) span.classList.add('role-system');
+                            else if (isUser) span.classList.add('role-user');
+                            else if (isAssistant) span.classList.add('role-assistant');
+                            else if (isTag) span.classList.add('role-tag');
+                            if (lower.includes('<|im_end|>')) span.classList.add('role-end');
+                            
+                            const myIdx = globalIdx; 
+                            span.onclick = (e) => handleTokenClick(idx, myIdx, e);
+                            
+                            row.appendChild(span);
+                            currentEls.push(span);
+                            globalIdx++;
+                        });
+                    }
+                    parent.appendChild(row);
+                });
+            };
+
+            const inputDiv = document.createElement('div');
+            inputDiv.className = 'trace-content';
+            renderText(trace.input, inputDiv);
+            col.appendChild(inputDiv);
+
+            if(trace.output) {
+                currentEls.push(null); 
+                globalIdx++;
+                const outDiv = document.createElement('div');
+                outDiv.className = 'output-section';
+                outDiv.innerHTML = '<span class="sep-label">OUTPUT</span>';
+                renderText(trace.output, outDiv);
+                col.appendChild(outDiv);
+            }
+
+            tokenElements.push(currentEls);
+            container.appendChild(col);
+        });
+        
+        setTimeout(resizeSVG, 100);
+    }
+
+    function performSearch(direction) {
+        const query = document.getElementById('search-input').value.trim().toLowerCase();
+        const countSpan = document.getElementById('search-count');
+        if (!query) { clearSearch(); return; }
+
+        if (searchResults.length === 0 || document.getElementById('search-input').dataset.lastQuery !== query) {
+            clearSearch();
+            document.getElementById('search-input').dataset.lastQuery = query;
+            const queryParts = query.split(/\s+/).filter(q => q);
+            if (queryParts.length === 0) return;
+
+            tokenData.forEach((tokens, traceIdx) => {
+                for (let i = 0; i <= tokens.length - queryParts.length; i++) {
+                    let isMatch = true;
+                    for (let j = 0; j < queryParts.length; j++) {
+                        const traceToken = tokens[i+j].toLowerCase();
+                        const queryToken = queryParts[j];
+                        if (!traceToken.includes(queryToken)) { isMatch = false; break; }
+                    }
+                    if (isMatch) {
+                        for (let j = 0; j < queryParts.length; j++) {
+                            const el = tokenElements[traceIdx][i+j];
+                            if (el) {
+                                el.classList.add('search-match');
+                                if (j === 0) searchResults.push(el); 
+                            }
+                        }
+                    }
+                }
+            });
+            currentSearchIndex = -1;
+        }
+
+        if (searchResults.length === 0) { countSpan.innerText = "0/0"; return; }
+        currentSearchIndex += direction;
+        if (currentSearchIndex >= searchResults.length) currentSearchIndex = 0;
+        if (currentSearchIndex < 0) currentSearchIndex = searchResults.length - 1;
+
+        countSpan.innerText = `${currentSearchIndex + 1}/${searchResults.length}`;
+        document.querySelectorAll('.search-current').forEach(el => el.classList.remove('search-current'));
+        const target = searchResults[currentSearchIndex];
+        target.classList.add('search-current');
+        target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+    }
+
+    function clearSearch() {
+        document.querySelectorAll('.search-match').forEach(el => el.classList.remove('search-match', 'search-current'));
+        searchResults = [];
+        currentSearchIndex = -1;
+        document.getElementById('search-count').innerText = "";
+    }
+
+    function cycleHeatmapMode() {
+        if (heatmapTask) cancelAnimationFrame(heatmapTask);
+        
+        if (currentHeatMode === 'off') currentHeatMode = 'freq';
+        else if (currentHeatMode === 'freq') currentHeatMode = 'hit';
+        else currentHeatMode = 'off';
+        
+        updateButtons();
+        
+        if (currentHeatMode !== 'off') {
+            document.body.classList.add('heatmap-active');
+            startAsyncHeatmap();
+        } else {
+            document.body.classList.remove('heatmap-active');
+            document.querySelectorAll('.token').forEach(el => {
+                el.className = el.className.replace(/heat-\w+|cache-hit|cache-source/g, '').trim();
+                el.removeAttribute('data-badge');
+            });
+        }
+    }
+
+    function updateButtons() {
+        heatBtn.classList.remove('active-toggle', 'mode-freq', 'mode-hit');
+        heatLegend.innerHTML = '';
+        heatLegend.classList.remove('visible');
+
+        if (currentHeatMode === 'off') {
+            heatBtn.innerText = "🔥 Heatmap: Off";
+        } 
+        else if (currentHeatMode === 'freq') {
+            heatBtn.innerText = "🔥 Global Freq";
+            heatBtn.classList.add('active-toggle', 'mode-freq');
+            heatLegend.innerHTML = `
+                <div class="legend-item"><span class="color-box" style="background:var(--heat-low-bg)"></span>Lo</div>
+                <div class="legend-item"><span class="color-box" style="background:var(--heat-mid-bg)"></span>Md</div>
+                <div class="legend-item"><span class="color-box" style="background:var(--heat-high-bg)"></span>Hi</div>
+            `;
+            heatLegend.classList.add('visible');
+        } 
+        else if (currentHeatMode === 'hit') {
+            heatBtn.innerText = "♻️ Cache Hits";
+            heatBtn.classList.add('active-toggle', 'mode-hit');
+            heatLegend.innerHTML = `
+                <div class="legend-item"><span class="color-box" style="background:var(--heat-low-bg)"></span>Lo</div>
+                <div class="legend-item"><span class="color-box" style="background:var(--heat-mid-bg)"></span>Md</div>
+                <div class="legend-item"><span class="color-box" style="background:var(--heat-high-bg)"></span>Hi</div>
+            `;
+            heatLegend.classList.add('visible');
+        }
+    }
+
+    function startAsyncHeatmap() {
+        if (tokenElements.length === 0) return;
+        const N = parseInt(document.getElementById('gram-len').value) || 8;
+        
+        ngramCounts.clear();
+        let maxCount = 1;
+        
+        // 1. Calculate Global Freq (Always needed for Tiering logic)
+        tokenData.forEach(tokens => {
+            for (let i = 0; i <= tokens.length - N; i++) {
+                const chunk = tokens.slice(i, i + N);
+                if (chunk.includes("__SEP__")) continue;
+                const key = chunk.join(' ');
+                const val = (ngramCounts.get(key) || 0) + 1;
+                ngramCounts.set(key, val);
+                if (val > maxCount) maxCount = val;
+            }
+        });
+        
+        const uniqueCounts = Array.from(new Set(ngramCounts.values())).sort((a,b)=>a-b);
+
+        // 2. Determine Hits & Countdown (Causal)
+        const hitData = []; // Stores row data
+        
+        if (currentHeatMode === 'hit') {
+            const runningCounts = new Map(); 
+            tokenData.forEach((tokens, tIdx) => {
+                const rowData = new Array(tokens.length).fill(null);
+                
+                for (let i = 0; i <= tokens.length - N; i++) {
+                    const chunk = tokens.slice(i, i + N);
+                    if (chunk.includes("__SEP__")) continue;
+                    const key = chunk.join(' ');
+                    
+                    const total = ngramCounts.get(key);
+                    if (total > 1) {
+                        const current = (runningCounts.get(key) || 0) + 1;
+                        runningCounts.set(key, current);
+                        
+                        rowData[i] = {
+                            total: total,
+                            remaining: total - current,
+                            isSource: current === 1,
+                            isHit: current > 1
+                        };
+                    }
+                }
+                hitData.push(rowData);
+            });
+        }
+
+        renderStatus.style.display = 'inline-block';
+        let traceIdx = 0;
+        
+        function renderChunk() {
+            const start = performance.now();
+            while (traceIdx < traces.length && performance.now() - start < 12) {
+                const tokens = tokenData[traceIdx];
+                const els = tokenElements[traceIdx];
+                
+                for(let el of els) {
+                    if(el) {
+                        el.className = el.className.replace(/heat-\w+|cache-hit|cache-source/g, '').trim();
+                        el.removeAttribute('data-badge');
+                    }
+                }
+
+                if (currentHeatMode === 'freq') {
+                    // Standard Freq Mode
+                    const tokenFreqs = new Array(tokens.length).fill(1);
+                    for (let i = 0; i <= tokens.length - N; i++) {
+                        if (tokens[i] === "__SEP__") continue;
+                        const chunk = tokens.slice(i, i + N);
+                        if (chunk.includes("__SEP__")) continue;
+                        const key = chunk.join(' ');
+                        const count = ngramCounts.get(key) || 1;
+                        if (count > 1) {
+                            for (let j = 0; j < N; j++) {
+                                if (count > tokenFreqs[i + j]) tokenFreqs[i + j] = count;
+                            }
+                        }
+                    }
+
+                    let prevFreq = 1;
+                    for (let i = 0; i < tokens.length; i++) {
+                        if (tokens[i] === "__SEP__") { prevFreq=1; continue; }
+                        const count = tokenFreqs[i];
+                        const el = els[i];
+
+                        if (count > 1) {
+                            const rankIndex = uniqueCounts.indexOf(count);
+                            const percentile = rankIndex / uniqueCounts.length;
+                            let tierClass = percentile > 0.8 ? 'heat-high' : (percentile > 0.4 ? 'heat-mid' : 'heat-low');
+                            
+                            el.classList.add(tierClass);
+                            if (count !== prevFreq) el.setAttribute('data-badge', `×${count}`);
+                        }
+                        prevFreq = count;
+                    }
+                } 
+                else if (currentHeatMode === 'hit') {
+                    // Causal Countdown Mode
+                    const rowData = hitData[traceIdx];
+                    const tokenStates = new Array(tokens.length).fill(null);
+
+                    for (let i = 0; i < rowData.length; i++) {
+                        const info = rowData[i];
+                        if (info) {
+                            for (let j = 0; j < N; j++) {
+                                // 修正后的优先级逻辑：
+                                // 1. 如果当前位置为空，直接填入
+                                // 2. 如果新来的(info)是 Hit，而已有的是 Source，强制覆盖 (Hit > Source)
+                                // 3. 如果状态相同（都是Hit或都是Source），则比较 total 频率 (频率高者优先)
+                                
+                                const current = tokenStates[i+j];
+                                let shouldReplace = false;
+
+                                if (!current) {
+                                    shouldReplace = true;
+                                } else {
+                                    // 逻辑核心：Hit 永远覆盖 Source
+                                    if (info.isHit && !current.isHit) {
+                                        shouldReplace = true;
+                                    } 
+                                    // 如果我是 Source，对方是 Hit，绝对不覆盖
+                                    else if (!info.isHit && current.isHit) {
+                                        shouldReplace = false;
+                                    }
+                                    // 状态层级一样时（同为Hit或同为Source），比拼全局热度
+                                    else if (info.total > current.total) {
+                                        shouldReplace = true;
+                                    }
+                                }
+
+                                if (shouldReplace) {
+                                    tokenStates[i+j] = info;
+                                }
+                            }
+                        }
+                    }
+
+                    let prevRem = -999;
+                    for (let i = 0; i < tokens.length; i++) {
+                        if (tokens[i] === "__SEP__") { prevRem = -999; continue; }
+                        const info = tokenStates[i];
+                        const el = els[i];
+
+                        if (info) {
+                            // Determine Tier for Color
+                            const rankIndex = uniqueCounts.indexOf(info.total);
+                            const percentile = rankIndex / uniqueCounts.length;
+                            let tierClass = percentile > 0.8 ? 'heat-high' : (percentile > 0.4 ? 'heat-mid' : 'heat-low');
+                            
+                            if (info.isHit) {
+                                el.classList.add(tierClass); // Apply solid color
+                            } else if (info.isSource) {
+                                el.classList.add('cache-source'); // Apply border/style only
+                            }
+                            
+                            // Badge logic: Show remaining hits ("↓N")
+                            if (info.remaining !== prevRem && info.remaining > 0) {
+                                el.setAttribute('data-badge', `↓${info.remaining}`);
+                            }
+                            prevRem = info.remaining;
+                        } else {
+                            prevRem = -999;
+                        }
+                    }
+                }
+                traceIdx++;
+            }
+
+            if (traceIdx < traces.length) {
+                heatmapTask = requestAnimationFrame(renderChunk);
+            } else {
+                renderStatus.style.display = 'none';
+                heatmapTask = null;
+            }
+        }
+        heatmapTask = requestAnimationFrame(renderChunk);
+    }
+
+    // ... (Click, Search, Helper functions same as before) ...
+    function handleTokenClick(traceIdx, tokenIdx, event) {
+        document.querySelectorAll('.source-chunk, .target-chunk, .active-focus').forEach(e => {
+            e.classList.remove('source-chunk', 'target-chunk', 'active-focus');
+        });
+        svgLayer.innerHTML = '';
+
+        const lenInput = document.getElementById('chunk-len-input');
+        const CHUNK_LEN = parseInt(lenInput.value) || 10;
+        
+        const sourceTokens = tokenData[traceIdx];
+        let seq = [];
+        for(let i=0; i<CHUNK_LEN; i++) {
+            const t = sourceTokens[tokenIdx+i];
+            if(!t || t==="__SEP__") break;
+            seq.push(t);
+        }
+        if(seq.length===0) return;
+
+        highlight(traceIdx, tokenIdx, seq.length, 'source-chunk');
+        const srcRect = getRect(traceIdx, tokenIdx, seq.length);
+        if(!srcRect) return;
+
+        matchTargets = [];
+        traces.forEach((_, tIdx) => {
+            const tTokens = tokenData[tIdx];
+            for(let i=0; i<=tTokens.length-seq.length; i++) {
+                if(isMatch(seq, tTokens, i)) {
+                    if (tIdx === traceIdx && i === tokenIdx) {
+                        matchTargets.push({ traceIdx: tIdx, tokenIdx: i, len: seq.length });
+                    } else {
+                        matchTargets.push({ traceIdx: tIdx, tokenIdx: i, len: seq.length });
+                        highlight(tIdx, i, seq.length, 'target-chunk');
+                        const tgtRect = getRect(tIdx, i, seq.length);
+                        if(tgtRect) {
+                            drawArrow(srcRect.right, srcRect.centerY, tgtRect.left, tgtRect.centerY);
+                        }
+                    }
+                }
+            }
+        });
+
+        openDock(matchTargets.length);
+    }
+
+    function openDock(count) {
+        currentMatchIndex = -1;
+        dockText.innerText = `${count} Matches`;
+        dock.classList.add('visible');
+    }
+
+    function closeDock() {
+        dock.classList.remove('visible');
+    }
+
+    function navigateMatch(dir) {
+        if(matchTargets.length === 0) return;
+        document.querySelectorAll('.active-focus').forEach(e => e.classList.remove('active-focus'));
+        
+        currentMatchIndex += dir;
+        if(currentMatchIndex >= matchTargets.length) currentMatchIndex = 0;
+        if(currentMatchIndex < 0) currentMatchIndex = matchTargets.length - 1;
+        
+        const t = matchTargets[currentMatchIndex];
+        const el = tokenElements[t.traceIdx][t.tokenIdx];
+        
+        if(el) {
+            for(let i=0; i<t.len; i++) tokenElements[t.traceIdx][t.tokenIdx+i].classList.add('active-focus');
+            el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+            dockText.innerText = `${currentMatchIndex+1} / ${matchTargets.length}`;
+        }
+    }
+
+    function isMatch(seq, full, start) {
+        for(let j=0; j<seq.length; j++) {
+            if(full[start+j] === "__SEP__") return false;
+            if(seq[j] !== full[start+j]) return false;
+        }
+        return true;
+    }
+    function highlight(tIdx, start, len, cls) {
+        for(let i=0; i<len; i++) tokenElements[tIdx][start+i].classList.add(cls);
+    }
+    function getRect(tIdx, start, len) {
+        const els = tokenElements[tIdx];
+        if(!els || !els[start]) return null;
+        const r1 = els[start].getBoundingClientRect();
+        const r2 = (els[start+len-1]||els[start]).getBoundingClientRect();
+        const cRect = container.getBoundingClientRect();
+        return {
+            left: r1.left - cRect.left,
+            right: r2.right - cRect.left,
+            top: r1.top - cRect.top,
+            centerY: (r1.top + r1.bottom)/2 - cRect.top
+        };
+    }
+    function drawArrow(x1, y1, x2, y2) {
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        const dist = Math.abs(x2-x1);
+        const strokeColor = getComputedStyle(document.documentElement).getPropertyValue('--arrow-color').trim();
+        const d = x2>x1 ? `M ${x1} ${y1} C ${x1+dist*0.4} ${y1}, ${x2-dist*0.4} ${y2}, ${x2} ${y2}` : `M ${x1} ${y1} C ${x1+60} ${y1}, ${x2-60} ${y2}, ${x2} ${y2}`;
+        path.setAttribute("d", d);
+        path.setAttribute("stroke", strokeColor);
+        path.setAttribute("stroke-width", "2");
+        path.setAttribute("fill", "none");
+        svgLayer.appendChild(path);
+    }
+    function resizeSVG() {
+        svgLayer.setAttribute('width', container.scrollWidth);
+        svgLayer.setAttribute('height', container.scrollHeight);
+    }
+    function resetViz(clearHeat=false) {
+        document.querySelectorAll('.source-chunk, .target-chunk, .active-focus').forEach(e => {
+            e.classList.remove('source-chunk', 'target-chunk', 'active-focus');
+        });
+        svgLayer.innerHTML = '';
+        if(clearHeat) toggleHeatmap();
+    }
+    window.addEventListener('resize', () => { resizeSVG(); resetViz(false); });
+    setTimeout(parseAndRender, 100);
+</script>
+</body>
+</html>

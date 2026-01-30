@@ -172,8 +172,8 @@ This confirms that although the *absolute prefix* is broken by dynamic content (
 
 We provide a dedicated visualizer to explore these traces interactively. You can load raw `.jsonl` trace files to inspect token distribution and cache hits.
 
-* **Online Visualizer**: [lmcache-aider-trace visualizer](https://lmcache-aider-trace.netlify.app/)
-
+* **Online Visualizer**: https://lmcache-aider-trace.netlify.app/
+* **Offline Visualizer**: [visualizer](../visualizer/index.html)
 
 ---
 
