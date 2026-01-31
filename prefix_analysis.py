@@ -18,17 +18,6 @@ import torch
 DEFAULT_TOKENIZER = "meta-llama/Llama-3.1-8B"
 DEFAULT_TOKENS_PER_GB = 8200  # Default for Llama-3.1; More details here: https://docs.lmcache.ai/getting_started/kv_cache_calculator.html
 DEFAULT_POOL_SIZES_GB: List[Union[int, float, str]] = [
-    0.01,
-    0.04,
-    0.1,
-    0.2,
-    0.4,
-    0.8,
-    1,
-    2,
-    4,
-    8,
-    16,
     "unlimited",
 ]
 
@@ -79,30 +68,38 @@ class LRUTokenPool:
         chunk_len: int = 16,
         stride_r: int = 16,
         chunk_batch: int = 512,
-    ) -> Tuple[int, float]:
+        return_details: bool = False,
+    ) -> Tuple[int, float, Optional[List[dict]]]:
         """
         For token_tensor[request_id], chunk it and check whether each chunk
         appears contiguously in any previous request (token_tensor[:request_id]).
-        Returns (total_tokens_matched, elapsed_seconds).
+        Returns (total_tokens_matched, elapsed_seconds, match_details).
+        
+        If return_details is True, match_details is a list of dicts with:
+        - MatchStart: start position in current request
+        - MatchEnd: end position in current request
+        - PrevStep: matched request ID
+        - PrevMatchStart: start position in matched request
+        - PrevMatchEnd: end position in matched request
         """
         assert token_tensor.ndim == 2, "Expected [N, T] tensor"
         N, T = token_tensor.shape
         assert 0 <= request_id < N, "request_id out of range"
 
         if request_id == 0 or T < chunk_len:
-            return 0, 0
+            return 0, 0, [] if return_details else None
 
         r = token_tensor[request_id]  # [T]
         r = r[: len(tokens)]
 
         # hotfix: Check if truncated length is sufficient for chunking
         if len(tokens) < chunk_len:
-            return 0, 0
+            return 0, 0, [] if return_details else None
 
         # Only consider requests that are still in the pool (not evicted)
         valid_request_ids = [rid for rid in self.requests.keys() if rid < request_id]
         if not valid_request_ids:
-            return 0, 0
+            return 0, 0, [] if return_details else None
 
         Xprev = token_tensor[valid_request_ids]  # [num_valid, T]
 
@@ -111,11 +108,14 @@ class LRUTokenPool:
         # Chunks of r
         r_chunks = r.unfold(dimension=0, size=chunk_len, step=stride_r)  # [C, L]
         if r_chunks.numel() == 0:
-            return 0, 0
+            return 0, 0, [] if return_details else None
 
         total_matched_chunks = 0
         # Track matches per request to find the best matching request
         request_match_counts: dict[int, int] = {}
+        
+        # Track detailed match information
+        match_details = [] if return_details else None
 
         # Process in mini-batches to control memory
         for b in range(0, r_chunks.size(0), chunk_batch):
@@ -130,18 +130,36 @@ class LRUTokenPool:
             if matched_chunk_indices.numel() > 0:
                 nonzero_indices = full.nonzero(as_tuple=True)
                 tensor_indices = nonzero_indices[0]  # [R] dimension (index into Xprev)
-                chunk_indices = nonzero_indices[2]  # [B] dimension
+                window_indices = nonzero_indices[1]  # [W] dimension (position in prev request)
+                chunk_indices = nonzero_indices[2]  # [B] dimension (chunk index in current request)
 
                 # Count matches per request for matched chunks only
                 # Map tensor index back to actual request ID
-                for tensor_idx, chunk_idx in zip(
-                    tensor_indices.tolist(), chunk_indices.tolist(), strict=False
+                for tensor_idx, window_idx, chunk_idx in zip(
+                    tensor_indices.tolist(), window_indices.tolist(), chunk_indices.tolist(), strict=False
                 ):
                     if chunk_idx in matched_chunk_indices.tolist():
                         actual_request_id = valid_request_ids[tensor_idx]
                         request_match_counts[actual_request_id] = (
                             request_match_counts.get(actual_request_id, 0) + 1
                         )
+                        
+                        # Store detailed match information
+                        if return_details:
+                            # Position in current request
+                            match_start = b + chunk_idx * stride_r
+                            match_end = match_start + chunk_len
+                            # Position in previous request
+                            prev_match_start = window_idx
+                            prev_match_end = window_idx + chunk_len
+                            
+                            match_details.append({
+                                "MatchStart": match_start,
+                                "MatchEnd": match_end,
+                                "PrevStep": actual_request_id,
+                                "PrevMatchStart": prev_match_start,
+                                "PrevMatchEnd": prev_match_end,
+                            })
 
         total_tokens_matched = total_matched_chunks * chunk_len
 
@@ -152,7 +170,7 @@ class LRUTokenPool:
             if best_id in self.requests:
                 self.requests.move_to_end(best_id)
 
-        return total_tokens_matched, 0
+        return total_tokens_matched, 0, match_details
 
     def add_request(
         self,
@@ -280,7 +298,8 @@ def calculate_hit_rate(
     pool_size: Optional[int] = None,
     token_tensor: Optional[torch.Tensor] = None,
     method: str = "prefix",
-) -> float:
+    collect_details: bool = False,
+) -> Tuple[float, Optional[List[dict]]]:
     # Use float('inf') for unlimited case to avoid eviction
     max_tokens = float("inf") if pool_size is None else pool_size
     pool = LRUTokenPool(max_tokens)
@@ -290,9 +309,21 @@ def calculate_hit_rate(
 
     total_lcs_time_s = 0.0
     lcs_calls = 0
+    
+    # Store detailed match information for each step
+    step_details = [] if collect_details else None
 
     for idx, tokens in tqdm(list(enumerate(token_sequences))):
         total_tokens += len(tokens)
+        
+        step_info = None
+        if collect_details:
+            step_info = {
+                "StepID": idx,
+                "InputLen": len(tokens),
+                "OutputLen": 0,  # Will be updated if needed
+                "Matches": []
+            }
 
         if method == "prefix":
             if idx > 0:
@@ -301,15 +332,21 @@ def calculate_hit_rate(
             pool.add_request(idx, tokens)
         elif method == "substring" and token_tensor is not None:
             if idx > 0:
-                common, elapsed = pool.longest_common_substring(
-                    idx, token_tensor, tokens
+                common, elapsed, match_details = pool.longest_common_substring(
+                    idx, token_tensor, tokens, return_details=collect_details
                 )
                 hit_tokens += common
                 total_lcs_time_s += elapsed
                 lcs_calls += 1
+                
+                if collect_details and match_details:
+                    step_info["Matches"] = match_details
             pool.add_request(idx, tokens, token_tensor)
         else:
             raise ValueError(f"Invalid method: {method}")
+        
+        if collect_details:
+            step_details.append(step_info)
 
     if method == "substring":
         avg_ms = (total_lcs_time_s / lcs_calls * 1000.0) if lcs_calls > 0 else 0.0
@@ -318,7 +355,8 @@ def calculate_hit_rate(
             f"calls {lcs_calls}, avg {avg_ms:.2f} ms"
         )
 
-    return hit_tokens / total_tokens if total_tokens > 0 else 0.0
+    hit_rate = hit_tokens / total_tokens if total_tokens > 0 else 0.0
+    return hit_rate, step_details
 
 
 def analyze_hit_rates_across_pool_sizes(
@@ -326,13 +364,15 @@ def analyze_hit_rates_across_pool_sizes(
     pool_sizes_gb: List[Union[int, float, str]],
     tokens_per_gb: int,
     token_tensor: Optional[torch.Tensor] = None,
-) -> Tuple[List[float], List[float], List[str]]:
+    collect_details: bool = False,
+) -> Tuple[List[float], List[float], List[str], Optional[List[dict]]]:
     print("\nAnalyzing hit rates across pool sizes...")
     print("=" * 60)
 
     prefix_hit_rates = []
     substring_hit_rates = []
     x_labels = []
+    substring_details = None
 
     for size_gb in pool_sizes_gb:
         if size_gb == "unlimited":
@@ -351,22 +391,26 @@ def analyze_hit_rates_across_pool_sizes(
         # For every pool size round, we should start from fresh
         tensor_copy = token_tensor.clone() if token_tensor is not None else None
 
-        prefix_hit_rate = calculate_hit_rate(
-            token_sequences, size_tokens, tensor_copy, method="prefix"
+        prefix_hit_rate, _ = calculate_hit_rate(
+            token_sequences, size_tokens, tensor_copy, method="prefix", collect_details=False
         )
         prefix_hit_rates.append(prefix_hit_rate)
         print(f"  Prefix: {prefix_hit_rate:.4f} ({prefix_hit_rate * 100:.2f}%)")
 
-        substring_hit_rate = calculate_hit_rate(
-            token_sequences, size_tokens, tensor_copy, method="substring"
+        substring_hit_rate, details = calculate_hit_rate(
+            token_sequences, size_tokens, tensor_copy, method="substring", collect_details=collect_details
         )
         substring_hit_rates.append(substring_hit_rate)
         print(
             f"  Substring: {substring_hit_rate:.4f} ({substring_hit_rate * 100:.2f}%)\n"
         )
+        
+        # Only store details for the first (unlimited) pool size
+        if collect_details and substring_details is None:
+            substring_details = details
 
     print("=" * 60)
-    return prefix_hit_rates, substring_hit_rates, x_labels
+    return prefix_hit_rates, substring_hit_rates, x_labels, substring_details
 
 
 def plot_hit_rates(
@@ -486,6 +530,7 @@ Examples:
   %(prog)s -i trace.jsonl
   %(prog)s -i trace.jsonl -o custom_output.png
   %(prog)s -i trace.jsonl --pool-sizes 1 2 4 8 16 unlimited
+  %(prog)s -i trace.jsonl --log-matches matching_details.jsonl
         """,
     )
 
@@ -503,6 +548,13 @@ Examples:
         type=str,
         default="prefix_cache_hit_rate.png",
         help="Path to output plot file (PNG) (default: prefix_cache_hit_rate.png)",
+    )
+
+    parser.add_argument(
+        "--log-matches",
+        type=str,
+        default=None,
+        help="Path to output JSONL file for detailed substring matching information (optional)",
     )
 
     parser.add_argument(
@@ -553,6 +605,25 @@ def parse_pool_sizes(
     return parsed_sizes
 
 
+def write_matching_details_to_jsonl(details: List[dict], output_path: str) -> None:
+    """
+    Write detailed substring matching information to a JSONL file.
+    Each line contains: StepID, InputLen, OutputLen, and a list of matches.
+    """
+    print(f"\nWriting matching details to: {output_path}")
+    with open(output_path, "w", encoding="utf-8") as f:
+        for step_info in details:
+            # Format the line according to user requirements
+            line_data = {
+                "StepID": step_info["StepID"],
+                "InputLen": step_info["InputLen"],
+                "OutputLen": step_info["OutputLen"],
+                "Matches": step_info["Matches"]
+            }
+            f.write(json.dumps(line_data) + "\n")
+    print(f"Wrote {len(details)} lines to {output_path}")
+
+
 def main() -> None:
     args = parse_arguments()
 
@@ -562,6 +633,8 @@ def main() -> None:
     print("Configuration:")
     print(f"  Input: {args.input}")
     print(f"  Output: {args.output}")
+    if args.log_matches:
+        print(f"  Match logging: {args.log_matches}")
     print(f"  Tokenizer: {args.tokenizer}")
     print(f"  Tokens per GB: {args.tokens_per_gb}")
     print(f"  Pool sizes: {pool_sizes_gb}\n")
@@ -581,14 +654,21 @@ def main() -> None:
     )
 
     # Analyze hit rates using both methods
-    prefix_hit_rates, substring_hit_rates, x_labels = (
+    # Collect detailed match information if user wants to log it
+    collect_details = args.log_matches is not None
+    prefix_hit_rates, substring_hit_rates, x_labels, substring_details = (
         analyze_hit_rates_across_pool_sizes(
             token_sequences,
             pool_sizes_gb,
             args.tokens_per_gb,
             token_tensor,
+            collect_details=collect_details,
         )
     )
+
+    # Write matching details to JSONL if requested
+    if args.log_matches and substring_details:
+        write_matching_details_to_jsonl(substring_details, args.log_matches)
 
     # Generate comparison plot
     plot_hit_rates(
