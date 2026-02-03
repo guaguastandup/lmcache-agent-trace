@@ -65,6 +65,7 @@ class LRUTokenPool:
         token_tensor: torch.Tensor,
         tokens: List[int],
         *,
+        input_len: Optional[int] = None,
         chunk_len: int = 16,
         stride_r: int = 16,
         chunk_batch: int = 512,
@@ -75,12 +76,15 @@ class LRUTokenPool:
         appears contiguously in any previous request (token_tensor[:request_id]).
         Returns (total_tokens_matched, elapsed_seconds, match_details).
         
+        If input_len is provided, only match against the first input_len tokens of the current request.
+        Previous requests are matched against their full content (input + output).
+        
         If return_details is True, match_details is a list of dicts with:
-        - MatchStart: start position in current request
-        - MatchEnd: end position in current request
+        - MatchStart: start position in current request (input portion only)
+        - MatchEnd: end position in current request (input portion only)
         - PrevStep: matched request ID
-        - PrevMatchStart: start position in matched request
-        - PrevMatchEnd: end position in matched request
+        - PrevMatchStart: start position in matched request (can be in input or output)
+        - PrevMatchEnd: end position in matched request (can be in input or output)
         """
         assert token_tensor.ndim == 2, "Expected [N, T] tensor"
         N, T = token_tensor.shape
@@ -90,10 +94,17 @@ class LRUTokenPool:
             return 0, 0, [] if return_details else None
 
         r = token_tensor[request_id]  # [T]
-        r = r[: len(tokens)]
+        
+        # Only process the input portion if input_len is specified
+        if input_len is not None:
+            r = r[:input_len]
+            match_len = input_len
+        else:
+            r = r[: len(tokens)]
+            match_len = len(tokens)
 
         # hotfix: Check if truncated length is sufficient for chunking
-        if len(tokens) < chunk_len:
+        if match_len < chunk_len:
             return 0, 0, [] if return_details else None
 
         # Only consider requests that are still in the pool (not evicted)
@@ -201,21 +212,25 @@ class LRUTokenPool:
 
 def load_and_tokenize_inputs(
     jsonl_path: str, tokenizer_name: str = DEFAULT_TOKENIZER
-) -> Tuple[List[List[int]], torch.Tensor]:
+) -> Tuple[List[List[int]], List[List[int]], List[int], List[int], torch.Tensor]:
     """
-    Load and tokenize inputs from a JSONL file.
+    Load and tokenize inputs and outputs from a JSONL file.
 
     Returns:
-        Tuple of (tokenized_sequences_list, tokenized_sequences_tensor)
-        - tokenized_sequences_list: List of token lists
-        - tokenized_sequences_tensor: Padded 2D tensor (sequences, tokens)
+        Tuple of (input_sequences, output_sequences, input_lengths, output_lengths, combined_tensor)
+        - input_sequences: List of input token lists
+        - output_sequences: List of output token lists
+        - input_lengths: List of input lengths
+        - output_lengths: List of output lengths
+        - combined_tensor: Padded 2D tensor (sequences, tokens) with input+output concatenated
           Sequences are padded with 0s to match the longest sequence.
     """
     print(f"Loading tokenizer: {tokenizer_name}")
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
 
-    print(f"Reading and tokenizing inputs from: {jsonl_path}")
-    tokenized_sequences = []
+    print(f"Reading and tokenizing inputs and outputs from: {jsonl_path}")
+    input_sequences = []
+    output_sequences = []
 
     with open(jsonl_path, "r", encoding="utf-8") as f:
         lines = f.readlines()
@@ -225,11 +240,13 @@ def load_and_tokenize_inputs(
             # Try standard JSON parsing first
             data = json.loads(line.strip())
             input_text = data.get("input", "")
-            tokens = tokenizer.encode(input_text)
-            tokenized_sequences.append(tokens)
+            output_text = data.get("output", "")
+            input_tokens = tokenizer.encode(input_text)
+            output_tokens = tokenizer.encode(output_text) if output_text else []
+            input_sequences.append(input_tokens)
+            output_sequences.append(output_tokens)
         except json.JSONDecodeError:
             # Handle malformed JSON with nested unescaped quotes
-            # Just extract the "input" field value as raw text and tokenize it
             try:
                 line_str = line.strip()
                 
@@ -237,13 +254,13 @@ def load_and_tokenize_inputs(
                 input_match = re.search(r'"input"\s*:\s*"', line_str)
                 if not input_match:
                     print(f"Warning: Failed to process line: Could not find input field")
-                    tokenized_sequences.append([])
+                    input_sequences.append([])
+                    output_sequences.append([])
                     continue
                 
                 input_start = input_match.end()
                 
                 # Find the end - look for ", "output" or ", "session_id" patterns
-                # The input value ends with a quote followed by comma and space and next field
                 output_pattern = r'",\s*"output"\s*:'
                 session_pattern = r'",\s*"session_id"\s*:'
                 
@@ -261,40 +278,75 @@ def load_and_tokenize_inputs(
                         input_end = line_str.rfind('"', input_start, last_brace)
                     else:
                         print(f"Warning: Failed to process line: Could not determine input end")
-                        tokenized_sequences.append([])
+                        input_sequences.append([])
+                        output_sequences.append([])
                         continue
                 
                 if input_end <= input_start:
                     print(f"Warning: Failed to process line: Invalid input boundaries")
-                    tokenized_sequences.append([])
+                    input_sequences.append([])
+                    output_sequences.append([])
                     continue
                 
-                # Extract the input text as-is and tokenize it directly as plain text
+                # Extract the input text
                 input_text = line_str[input_start:input_end]
-                tokens = tokenizer.encode(input_text)
-                tokenized_sequences.append(tokens)
+                input_tokens = tokenizer.encode(input_text)
+                
+                # Try to extract output if it exists
+                output_tokens = []
+                if output_match:
+                    output_start = input_start + output_match.end()
+                    # Find output end (before session_id or closing brace)
+                    session_in_tail = re.search(session_pattern, line_str[output_start:])
+                    if session_in_tail:
+                        output_end = output_start + session_in_tail.start()
+                    else:
+                        last_brace = line_str.rfind('}')
+                        if last_brace > output_start:
+                            output_end = line_str.rfind('"', output_start, last_brace)
+                        else:
+                            output_end = output_start
+                    
+                    if output_end > output_start:
+                        output_text = line_str[output_start:output_end]
+                        output_tokens = tokenizer.encode(output_text)
+                
+                input_sequences.append(input_tokens)
+                output_sequences.append(output_tokens)
                     
             except Exception as e2:
                 print(f"Warning: Failed to process line: {e2}")
-                tokenized_sequences.append([])
+                input_sequences.append([])
+                output_sequences.append([])
 
-    if tokenized_sequences:
-        max_length = max(len(seq) for seq in tokenized_sequences)
-        num_sequences = len(tokenized_sequences)
+    # Calculate lengths
+    input_lengths = [len(seq) for seq in input_sequences]
+    output_lengths = [len(seq) for seq in output_sequences]
+    
+    # Create combined sequences (input + output)
+    combined_sequences = []
+    for inp, out in zip(input_sequences, output_sequences):
+        combined_sequences.append(inp + out)
+    
+    if combined_sequences:
+        max_length = max(len(seq) for seq in combined_sequences)
+        num_sequences = len(combined_sequences)
 
         # Create padded tensor (pad with 0s)
-        tokenized_tensor = torch.zeros((num_sequences, max_length), dtype=torch.long)
-        for i, seq in enumerate(tokenized_sequences):
+        combined_tensor = torch.zeros((num_sequences, max_length), dtype=torch.long)
+        for i, seq in enumerate(combined_sequences):
             if seq:
-                tokenized_tensor[i, : len(seq)] = torch.tensor(seq, dtype=torch.long)
+                combined_tensor[i, : len(seq)] = torch.tensor(seq, dtype=torch.long)
     else:
-        tokenized_tensor = torch.tensor([], dtype=torch.long)
+        combined_tensor = torch.tensor([], dtype=torch.long)
 
-    return tokenized_sequences, tokenized_tensor
+    return input_sequences, output_sequences, input_lengths, output_lengths, combined_tensor
 
 
 def calculate_hit_rate(
     token_sequences: List[List[int]],
+    input_lengths: List[int],
+    output_lengths: List[int],
     pool_size: Optional[int] = None,
     token_tensor: Optional[torch.Tensor] = None,
     method: str = "prefix",
@@ -314,26 +366,32 @@ def calculate_hit_rate(
     step_details = [] if collect_details else None
 
     for idx, tokens in tqdm(list(enumerate(token_sequences))):
-        total_tokens += len(tokens)
+        # Only count input tokens for hit rate (not output)
+        input_len = input_lengths[idx]
+        output_len = output_lengths[idx]
+        total_tokens += input_len
         
         step_info = None
         if collect_details:
             step_info = {
                 "StepID": idx,
-                "InputLen": len(tokens),
-                "OutputLen": 0,  # Will be updated if needed
+                "InputLen": input_len,
+                "OutputLen": output_len,
                 "Matches": []
             }
 
         if method == "prefix":
             if idx > 0:
-                common, _ = pool.longest_prefix_len(tokens)
+                # For prefix matching, only match the input portion
+                input_only = tokens[:input_len]
+                common, _ = pool.longest_prefix_len(input_only)
                 hit_tokens += common
             pool.add_request(idx, tokens)
         elif method == "substring" and token_tensor is not None:
             if idx > 0:
+                # For substring matching, only match the input portion
                 common, elapsed, match_details = pool.longest_common_substring(
-                    idx, token_tensor, tokens, return_details=collect_details
+                    idx, token_tensor, tokens, input_len=input_len, return_details=collect_details
                 )
                 hit_tokens += common
                 total_lcs_time_s += elapsed
@@ -361,6 +419,8 @@ def calculate_hit_rate(
 
 def analyze_hit_rates_across_pool_sizes(
     token_sequences: List[List[int]],
+    input_lengths: List[int],
+    output_lengths: List[int],
     pool_sizes_gb: List[Union[int, float, str]],
     tokens_per_gb: int,
     token_tensor: Optional[torch.Tensor] = None,
@@ -392,13 +452,13 @@ def analyze_hit_rates_across_pool_sizes(
         tensor_copy = token_tensor.clone() if token_tensor is not None else None
 
         prefix_hit_rate, _ = calculate_hit_rate(
-            token_sequences, size_tokens, tensor_copy, method="prefix", collect_details=False
+            token_sequences, input_lengths, output_lengths, size_tokens, tensor_copy, method="prefix", collect_details=False
         )
         prefix_hit_rates.append(prefix_hit_rate)
         print(f"  Prefix: {prefix_hit_rate:.4f} ({prefix_hit_rate * 100:.2f}%)")
 
         substring_hit_rate, details = calculate_hit_rate(
-            token_sequences, size_tokens, tensor_copy, method="substring", collect_details=collect_details
+            token_sequences, input_lengths, output_lengths, size_tokens, tensor_copy, method="substring", collect_details=collect_details
         )
         substring_hit_rates.append(substring_hit_rate)
         print(
@@ -639,29 +699,35 @@ def main() -> None:
     print(f"  Tokens per GB: {args.tokens_per_gb}")
     print(f"  Pool sizes: {pool_sizes_gb}\n")
 
-    # Load and tokenize inputs
-    token_sequences, token_tensor = load_and_tokenize_inputs(args.input, args.tokenizer)
-    print(f"Loaded {len(token_sequences)} requests")
-    print(f"Token tensor shape: {token_tensor.shape} (padded with 0s)")
-    print(f"First sequence: {token_tensor[0]}")
+    # Load and tokenize inputs and outputs
+    input_sequences, output_sequences, input_lengths, output_lengths, combined_tensor = \
+        load_and_tokenize_inputs(args.input, args.tokenizer)
+    
+    # Combined sequences for processing
+    combined_sequences = []
+    for inp, out in zip(input_sequences, output_sequences):
+        combined_sequences.append(inp + out)
+    
+    print(f"Loaded {len(combined_sequences)} requests")
+    print(f"Combined tensor shape: {combined_tensor.shape} (input+output, padded with 0s)")
+    print(f"First sequence: {combined_tensor[0]}")
 
-    # Calculate statistics
-    num_requests = len(token_sequences)
-    avg_token_length = (
-        sum(len(seq) for seq in token_sequences) / num_requests
-        if num_requests > 0
-        else 0
-    )
+    # Calculate statistics (only count input lengths for average)
+    num_requests = len(combined_sequences)
+    avg_input_length = sum(input_lengths) / num_requests if num_requests > 0 else 0
+    avg_output_length = sum(output_lengths) / num_requests if num_requests > 0 else 0
 
     # Analyze hit rates using both methods
     # Collect detailed match information if user wants to log it
     collect_details = args.log_matches is not None
     prefix_hit_rates, substring_hit_rates, x_labels, substring_details = (
         analyze_hit_rates_across_pool_sizes(
-            token_sequences,
+            combined_sequences,
+            input_lengths,
+            output_lengths,
             pool_sizes_gb,
             args.tokens_per_gb,
-            token_tensor,
+            combined_tensor,
             collect_details=collect_details,
         )
     )
@@ -677,7 +743,7 @@ def main() -> None:
         x_labels,
         args.output,
         num_requests,
-        avg_token_length,
+        avg_input_length,
         args.tokenizer,
     )
     print("\nAnalysis complete!")
