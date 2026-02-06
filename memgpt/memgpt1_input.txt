@@ -1,0 +1,88 @@
+Hey! I’m prototyping a small Python utility.
+Task: write a function chunk_text(text: str, max_chars: int) -> list[str] that splits text into chunks without breaking words. If a single word is longer than max_chars, put it alone in its own chunk. Preserve original whitespace minimally (single spaces between words is fine). Add 3 quick tests.
+
+Before you code: I’m picky about style. Please remember this preference:
+Use Python 3.11+ type hints everywhere
+Prefer dataclasses only if needed (likely not needed here)
+Use pytest-style tests (plain assert)
+Keep functions small and avoid clever one-liners
+If you can, format docstrings in Google style.
+
+One more thing to remember: I strongly prefer using pathlib.Path instead of os.path. Even if you don’t need it in this task, I want you to keep this in mind for later.
+
+Nice. Now extend it: add an option keep_newlines: bool = True.
+If keep_newlines=True, treat
+as hard boundaries (chunks can’t cross a newline).
+If False, normalize newlines to spaces.
+Add tests for both cases.
+
+I’m going to switch topics briefly. Remember this about me for later:
+I’m in Pacific Time
+I hate meetings before 10am
+When you suggest schedules, prefer Tue–Thu afternoons.
+
+Back to code: can you wrap this into a tiny CLI?
+Command: python -m chunker --max-chars 80 --keep-newlines input.txt
+Output chunks separated by a line containing exactly ---.
+Please remember: use argparse, and use Path for file IO.
+
+Small preference reminder (please store this):
+When you write Python, I prefer double quotes for strings unless the string itself contains ".
+
+Ok implement the CLI. Keep it clean.
+
+Cool. Now I want to see if you remember.
+Without me repeating anything: what are my Python coding-style preferences?
+
+Back to the chunking logic: add a parameter max_chunks: int | None = None.
+If set, stop producing more chunks once the limit is reached, and put the remaining text into the final chunk (even if it exceeds max_chars). Add tests.
+
+Quick update — please modify one earlier preference and remember the change:
+For Python tests, I still like pytest, but now I prefer:
+Grouping tests into small functions is fine
+BUT add brief comments above each test explaining intent
+This overrides my earlier “just plain asserts” preference only in terms of comments, not framework.
+
+Another update to store:
+I’ve started working more with async Python
+When possible, I prefer async/await–friendly APIs, but not at the cost of clarity
+This is a soft preference, not a hard rule.
+
+Let’s add a personal workflow note (please remember this too):
+When debugging, I prefer seeing minimal reproduction examples before long explanations.
+Bullet points > long paragraphs.
+
+Back to the CLI:
+Add a flag --json that outputs the chunks as a JSON array instead of plain text.
+Important:
+If --json is set, ignore the --- separator.
+Use the standard library only.
+Follow all my remembered Python style preferences.
+
+If you were about to explain a tricky bug to me, how would you structure the explanation, based on what you remember about my preferences?
+
+New constraint — this one is important and should override older habits:
+I now prefer:
+No top-level script logic in Python files
+Always use a main() function and if name == "main": main()
+Please remember this as a strong preference.
+
+Small correction — I realized something:
+I do not care whether docstrings are Google-style or not anymore.
+You can forget that preference.
+
+Context switch again (store this):
+On weekdays, I usually code after 7pm
+On weekends, I prefer long uninterrupted blocks
+This matters if you suggest timelines or plans.
+
+If you were helping me plan a refactor that takes ~6 hours, when would you suggest I do it, and why?
+
+Now let’s introduce a conflicting preference on purpose:
+Sometimes I want very concise answers (2–3 bullets max).
+Other times, I want deep, careful explanations.
+Rule to remember:
+Default to concise
+Go deep only when I explicitly ask
+Please store this decision logic.
+
